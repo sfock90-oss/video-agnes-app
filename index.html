@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generateur Video IA</title>
+<style>
+  body { font-family: Arial; padding: 15px; background: #1a1a2e; color: white; margin: 0; }
+  h1 { font-size: 20px; text-align: center; }
+  textarea, input, select { width: 100%; padding: 10px; margin: 8px 0; border-radius: 8px; border: 1px solid #444; background: #0f0f1a; color: white; font-size: 14px; box-sizing: border-box; }
+  button { width: 100%; padding: 15px; border-radius: 10px; border: none; background: #6c5ce7; color: white; font-size: 16px; font-weight: bold; margin-top: 10px; }
+  button:disabled { background: #555; }
+  #status { margin: 15px 0; padding: 12px; background: #0f0f1a; border-radius: 8px; min-height: 20px; font-size: 13px; }
+  video { width: 100%; border-radius: 10px; margin-top: 15px; }
+  a { color: #a29bfe; display: block; margin-top: 10px; word-break: break-all; }
+  .hidden { display: none; }
+  label { display: block; margin-top: 10px; font-size: 14px; }
+  .small { font-size: 11px; color: #888; margin-top: -5px; }
+</style>
+</head>
+<body>
+<h1>Generateur Video IA</h1>
+
+<label>Decris ta video :</label>
+<textarea id="prompt" rows="5" placeholder="Ex: un chat astronaute qui flotte dans l'espace, style cinema"></textarea>
+
+<label>Duree :</label>
+<select id="duration">
+  <option value="4">4 secondes</option>
+  <option value="5" selected>5 secondes</option>
+  <option value="8">8 secondes</option>
+  <option value="10">10 secondes</option>
+  <option value="12">12 secondes</option>
+</select>
+
+<label>Format :</label>
+<select id="aspect">
+  <option value="16:9" selected>16:9 (paysage / YouTube)</option>
+  <option value="9:16">9:16 (portrait / TikTok, Reels)</option>
+  <option value="1:1">1:1 (carre / Instagram)</option>
+  <option value="4:3">4:3 (classique)</option>
+  <option value="3:4">3:4 (portrait classique)</option>
+  <option value="21:9">21:9 (cinema large)</option>
+</select>
+
+<label>Cle Agnes AI :</label>
+<input type="password" id="agnesKey" placeholder="sk-...">
+<p class="small">Colle ta cle API Agnes. Elle reste sur ton telephone.</p>
+
+<button id="generate-btn">Creer ma video</button>
+
+<div id="status">Pret a creer...</div>
+
+<video id="result" controls class="hidden"></video>
+<div id="downloads"></div>
+
+<script>
+const AGNES_BASE_URL = "https://apihub.agnes-ai.com";
+const MODEL_NAME = "agnes-video-2.5-flash";
+
+const btn = document.getElementById('generate-btn');
+const statusDiv = document.getElementById('status');
+const video = document.getElementById('result');
+const downloads = document.getElementById('downloads');
+const keyInput = document.getElementById('agnesKey');
+
+const savedKey = localStorage.getItem('agnes_key');
+if (savedKey) keyInput.value = savedKey;
+keyInput.addEventListener('input', function() {
+  localStorage.setItem('agnes_key', keyInput.value.trim());
+});
+
+function dire(texte) { statusDiv.textContent = texte; }
+
+btn.onclick = async function() {
+  btn.disabled = true;
+  downloads.innerHTML = '';
+  video.classList.add('hidden');
+
+  try {
+    const prompt = document.getElementById('prompt').value.trim();
+    const seconds = document.getElementById('duration').value;
+    const aspect = document.getElementById('aspect').value;
+    const apiKey = keyInput.value.trim();
+
+    if (!prompt) { dire("Ecrit d'abord une description !"); btn.disabled = false; return; }
+    if (!apiKey) { dire("Il manque la cle Agnes !"); btn.disabled = false; return; }
+
+    dire("Envoi de la demande a Agnes...");
+
+    const createRes = await fetch(AGNES_BASE_URL + "/v1/videos", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: MODEL_NAME,
+        prompt: prompt,
+        seconds: seconds,
+        mode: "text",
+        size: "720P",
+        aspect_ratio: aspect,
+        n: 1
+      })
+    });
+
+    const createData = await createRes.json();
+    console.log("CREATION:", createData);
+
+    if (!createRes.ok) {
+      throw new Error("Agnes a refuse : " + (createData.detail || createData.message || JSON.stringify(createData)));
+    }
+
+    const videoId = createData.video_id || createData.id || createData.task_id;
+    if (!videoId) throw new Error("Pas de video_id. Reponse : " + JSON.stringify(createData));
+
+    dire("Video en cours de creation... (1 a 3 minutes)");
+
+    let result = null;
+    let attempts = 0;
+
+    while (attempts < 120) {
+      await new Promise(function(r) { setTimeout(r, 3000); });
+      attempts++;
+
+      const pollUrl = AGNES_BASE_URL + "/agnesapi?video_id=" + encodeURIComponent(videoId) + "&model_name=" + MODEL_NAME;
+      const pollRes = await fetch(pollUrl, { headers: { "Authorization": "Bearer " + apiKey } });
+      const pollData = await pollRes.json();
+      console.log("STATUT:", pollData);
+
+      const st = pollData.status;
+      const progress = pollData.progress || 0;
+      dire("Statut : " + st + " (" + progress + "%)");
+
+      if (st === "completed" || st === "succeeded") { result = pollData; break; }
+      if (st === "failed" || st === "error") { throw new Error("Echec Agnes : " + (pollData.error || pollData.detail || "inconnu")); }
+    }
+
+    if (!result) throw new Error("Delai depasse.");
+
+    const videoUrl = result.url || result.video_url || result.output;
+    if (!videoUrl) throw new Error("Pas d'URL. Reponse : " + JSON.stringify(result));
+
+    dire("Video prete !");
+    video.src = videoUrl;
+    video.classList.remove('hidden');
+
+    const dl = document.createElement('a');
+    dl.href = videoUrl;
+    dl.download = 'video-agnes.mp4';
+    dl.textContent = 'Telecharger la video';
+    dl.target = '_blank';
+    downloads.appendChild(dl);
+
+    dire("Termine ! Ta video est prete avec le son inclus.");
+
+  } catch (e) {
+    dire("Erreur : " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
