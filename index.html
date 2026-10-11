@@ -21,6 +21,12 @@
 <body>
 <h1>Generateur Video IA</h1>
 
+<label>URL de l'API (Endpoint de base) :</label>
+<input type="text" id="baseUrl" value="https://apihub.agnes-ai.com">
+
+<label>Nom du modèle :</label>
+<input type="text" id="modelName" value="agnes-video-2.5-flash">
+
 <label>Decris ta video :</label>
 <textarea id="prompt" rows="5" placeholder="Ex: un chat astronaute qui flotte dans l'espace, style cinema"></textarea>
 
@@ -43,9 +49,9 @@
   <option value="21:9">21:9 (cinema large)</option>
 </select>
 
-<label>Cle Agnes AI :</label>
-<input type="password" id="agnesKey" placeholder="sk-...">
-<p class="small">Colle ta cle API Agnes. Elle reste sur ton telephone.</p>
+<label>Cle API :</label>
+<input type="password" id="apiKeyInput" placeholder="sk-...">
+<p class="small">Colle ta cle API. Elle reste sur ton telephone.</p>
 
 <button id="generate-btn">Creer ma video</button>
 
@@ -55,19 +61,18 @@
 <div id="downloads"></div>
 
 <script>
-const AGNES_BASE_URL = "https://apihub.agnes-ai.com";
-const MODEL_NAME = "agnes-video-2.5-flash";
-
 const btn = document.getElementById('generate-btn');
 const statusDiv = document.getElementById('status');
 const video = document.getElementById('result');
 const downloads = document.getElementById('downloads');
-const keyInput = document.getElementById('agnesKey');
+const keyInput = document.getElementById('apiKeyInput');
+const baseUrlInput = document.getElementById('baseUrl');
+const modelInput = document.getElementById('modelName');
 
-const savedKey = localStorage.getItem('agnes_key');
+const savedKey = localStorage.getItem('custom_api_key');
 if (savedKey) keyInput.value = savedKey;
 keyInput.addEventListener('input', function() {
-  localStorage.setItem('agnes_key', keyInput.value.trim());
+  localStorage.setItem('custom_api_key', keyInput.value.trim());
 });
 
 function dire(texte) { statusDiv.textContent = texte; }
@@ -82,11 +87,13 @@ btn.onclick = async function() {
     const seconds = document.getElementById('duration').value;
     const aspect = document.getElementById('aspect').value;
     const apiKey = keyInput.value.trim();
+    const AGNES_BASE_URL = baseUrlInput.value.trim().replace(/\/$/, "");
+    const MODEL_NAME = modelInput.value.trim();
 
     if (!prompt) { dire("Ecrit d'abord une description !"); btn.disabled = false; return; }
-    if (!apiKey) { dire("Il manque la cle Agnes !"); btn.disabled = false; return; }
+    if (!apiKey) { dire("Il manque la cle API !"); btn.disabled = false; return; }
 
-    dire("Envoi de la demande a Agnes...");
+    dire("Envoi de la demande...");
 
     const createRes = await fetch(AGNES_BASE_URL + "/v1/videos", {
       method: "POST",
@@ -109,7 +116,7 @@ btn.onclick = async function() {
     console.log("CREATION:", createData);
 
     if (!createRes.ok) {
-      throw new Error("Agnes a refuse : " + (createData.detail || createData.message || JSON.stringify(createData)));
+      throw new Error("L'API a refuse : " + (createData.detail || createData.message || JSON.stringify(createData)));
     }
 
     const videoId = createData.video_id || createData.id || createData.task_id;
@@ -134,7 +141,7 @@ btn.onclick = async function() {
       dire("Statut : " + st + " (" + progress + "%)");
 
       if (st === "completed" || st === "succeeded") { result = pollData; break; }
-      if (st === "failed" || st === "error") { throw new Error("Echec Agnes : " + (pollData.error || pollData.detail || "inconnu")); }
+      if (st === "failed" || st === "error") { throw new Error("Echec : " + (pollData.error || pollData.detail || "inconnu")); }
     }
 
     if (!result) throw new Error("Delai depasse.");
@@ -148,12 +155,12 @@ btn.onclick = async function() {
 
     const dl = document.createElement('a');
     dl.href = videoUrl;
-    dl.download = 'video-agnes.mp4';
+    dl.download = 'video-gen.mp4';
     dl.textContent = 'Telecharger la video';
     dl.target = '_blank';
     downloads.appendChild(dl);
 
-    dire("Termine ! Ta video est prete avec le son inclus.");
+    dire("Termine ! Ta video est prete.");
 
   } catch (e) {
     dire("Erreur : " + e.message);
